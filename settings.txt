@@ -1,0 +1,5 @@
+[sonar]
+start_freq = 40001
+end_freq = 39999
+samples = 100
+pause = 0.1
