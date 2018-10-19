@@ -13,14 +13,17 @@ import library
 import os
 import time
 import numpy
-
+import sweep
+import pandas
 
 import matplotlib
+
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 from matplotlib.figure import Figure
 
-#def take_snapshot(self, event):
+
+# def take_snapshot(self, event):
 #    # if self.run_on_robot: print 'Take SnapShot'
 #    image_data = self.client.take_snapshot()
 #    self.last_image = Image.open(StringIO.StringIO(image_data))
@@ -39,14 +42,15 @@ class HelloApp:
 
         # Figure
         self.fig = Figure(figsize=(10, 5), dpi=100)
-        self.axis = self.fig.add_subplot(111)
+        self.axis1 = self.fig.add_subplot(121)
+        self.axis2 = self.fig.add_subplot(122)
 
         # Define widgets
         self.master = master
         self.folder = tk.Entry(textvariable=self.folder_name, width=30)
         self.repeats = tk.Entry(textvariable=self.repeat_value, width=10, justify=tk.CENTER)
-        self.counter = tk.Label(textvariable=self.counter_value, width =10, justify=tk.CENTER)
-        self.status = tk.Message(textvariable=self.status_value,width = 500)
+        self.counter = tk.Label(textvariable=self.counter_value, width=10, justify=tk.CENTER)
+        self.status = tk.Message(textvariable=self.status_value, width=500)
         self.measure = tk.Button(master, text="Measure")
 
         # Figure widget
@@ -65,8 +69,7 @@ class HelloApp:
         self.settings = configparser.ConfigParser()
         self.settings.read('settings.txt')
 
-
-
+        # Prepare Sonar
         self.sonar = Sonar.Sonar()
         self.sonar.connect()
         start_freq = self.settings.getint('sonar', 'start_freq')
@@ -75,10 +78,9 @@ class HelloApp:
         self.sonar.set_signal(start_freq, end_freq, samples)
         self.sonar.build_charge()
 
-
         # Bindings
         self.measure.bind('<ButtonPress>', self.do_measurement)
-        #master.protocol("WM_DELETE_WINDOW", self.on_close)
+        # master.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Set initial values
         self.counter_value.set(0)
@@ -98,26 +100,47 @@ class HelloApp:
         repeats = self.repeat_value.get()
         pause = self.settings.getfloat('sonar', 'pause')
 
-        all_data = numpy.empty((7000,2,repeats))
+        all_data = numpy.empty((7000, 2, repeats))
         for repetition in range(repeats):
-            message = 'Performing measurement %s, %i/%i ' %(current_counter_str, repetition+1, repeats)
+            message = 'Performing measurement %s, %i/%i ' % (current_counter_str, repetition + 1, repeats)
             self.status_value.set(message)
             self.status.update_idletasks()
             data = self.sonar.measure()
             data = Sonar.convert_data(data, 7000)
-            all_data[:,:,repetition] = data
+            all_data[:, :, repetition] = data
             time.sleep(pause)
 
-        self.axis.clear()
-        self.axis.plot(data)
+        self.axis1.clear()
+        self.axis1.plot(data)
         self.canvas.draw()
 
         output_file = os.path.join(data_folder, 'measurement' + current_counter_str + '.npy')
         numpy.save(output_file, all_data)
 
+        message = 'Performing lidar measurement'
+        self.status_value.set(message)
+        self.status.update_idletasks()
+
+        lidar_data = sweep.scan(3)
+        plot_data = lidar_data[lidar_data['strength'] > 50]
+        plot_data['round'] = numpy.round(plot_data['degrees'])
+
+        mns = plot_data.groupby('degrees')
+        mns = mns.mean()
+        mns = mns.reset_index()
+
+        self.axis2.clear()
+        self.axis2.scatter(mns['x'], mns['y'], s=0.1)
+        self.axis2.axis('equal')
+        self.canvas.draw()
+
+        output_file = os.path.join(data_folder, 'measurement' + current_counter_str + '.csv')
+        lidar_data.to_csv(output_file)
+
         message = 'Measurement %s completed' % (current_counter_str)
         self.status_value.set(message)
         self.status.update_idletasks()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
