@@ -13,23 +13,29 @@ import library
 import os
 import time
 import numpy
-import sweep
+from sweeppy import Sweep
+import threading
+import re
+import matplotlib
 import pandas
 
-import matplotlib
-
 matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg# NavigationToolbar2TkAgg
 from matplotlib.figure import Figure
 
 
-# def take_snapshot(self, event):
-#    # if self.run_on_robot: print 'Take SnapShot'
-#    image_data = self.client.take_snapshot()
-#    self.last_image = Image.open(StringIO.StringIO(image_data))
-#    self.last_image = ImageTk.PhotoImage(self.last_image)
-#    self.image_label.configure(image=self.last_image)
-#    self.master.update()
+def process_scans(scans):
+    scans = str(scans)
+    result = re.findall('\d+', scans)
+    result = [int(x) for x in result]
+    converted = []
+    while len(result)>0:
+        angle = result.pop(0)
+        distance = result.pop(0)
+        strength = result.pop(0)
+        converted.append([angle, distance, strength])
+    return converted
+
 
 class HelloApp:
     def __init__(self, master):
@@ -78,6 +84,14 @@ class HelloApp:
         self.sonar.set_signal(start_freq, end_freq, samples)
         self.sonar.build_charge()
 
+        # Scan variables
+        self.current_scan = None
+        self.current_scan_time = None
+        self.scan_thread = threading.Thread(target=self.scanning)
+        self.scan_thread.start()
+
+        #
+
         # Bindings
         self.measure.bind('<ButtonPress>', self.do_measurement)
         # master.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -86,6 +100,37 @@ class HelloApp:
         self.counter_value.set(0)
         self.repeat_value.set(3)
         self.status_value.set('Ready')
+
+    def scanning(self):
+        with Sweep('/dev/ttyUSB0') as sweep:
+            sweep.start_scanning()
+            for scan in sweep.get_scans():
+                data = ('{}\n'.format(scan))
+                self.current_scan = process_scans(data)
+                self.current_scan_time = time.asctime()
+
+    def get_scans(self, n = 3):
+        scans = self.current_scan
+        stamp = self.current_scan_time
+        message = 'Got scan %i/%i ' % (1, n)
+        self.status_value.set(message)
+        self.status.update_idletasks()
+        for x in range(n):
+            while self.current_scan_time == stamp: time.sleep(0.1)
+            scans = scans + self.current_scan
+            stamp = self.current_scan_time
+            message = 'Got scan %i/%i ' % (x+1, n)
+            self.status_value.set(message)
+            self.status.update_idletasks()
+
+        all_samples = pandas.DataFrame(scans)
+        all_samples.columns = ['degrees','distance', 'strength']
+        all_samples['degrees'] = all_samples['degrees'] / 1000 # milli-degress to degrees
+        all_samples['rad'] = numpy.deg2rad(all_samples['degrees'])
+        all_samples['distance'] = all_samples['distance'] / 10 # cm to mm
+        all_samples['x'] = all_samples['distance'] * numpy.cos(all_samples['rad'] )
+        all_samples['y'] = all_samples['distance'] * numpy.sin(all_samples['rad'])
+        return all_samples
 
     def do_measurement(self, event):
         folder = self.folder_name.get()
@@ -121,10 +166,9 @@ class HelloApp:
         self.status_value.set(message)
         self.status.update_idletasks()
 
-        lidar_data = sweep.scan(3)
-        plot_data = lidar_data[lidar_data['strength'] > 50]
-        plot_data['round'] = numpy.round(plot_data['degrees'])
+        lidar_data = self.get_scans()
 
+        plot_data = lidar_data[lidar_data['strength'] > 50]
         mns = plot_data.groupby('degrees')
         mns = mns.mean()
         mns = mns.reset_index()
