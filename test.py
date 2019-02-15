@@ -7,4 +7,4 @@ with Sweep('/dev/ttyUSB0') as sweep:
     print 'hello'
 
     for scan in sweep.get_scans():
-        print('{}\n'.format(scan))
+        print('bx = fig.add_subplot(111){}\n'.format(scan))

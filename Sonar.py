@@ -159,6 +159,12 @@ class Sonar:
 def convert_data(data, samples=7000):
     channels = 2
     data_format = str(samples * channels) + 'H'
+    #for debug must remove later
+    #data value seems to be null
+    #have to check
+    if(data == None):
+        print('there is null prob with the Data')
+    print(data_format)
     data = numpy.asarray(struct.unpack(data_format, data))
     data = data.reshape((samples, channels))
     means = numpy.mean(data, axis=0)
